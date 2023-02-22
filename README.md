@@ -45,3 +45,9 @@ or add modules to the folder which will be available via import command.
 
 WARNING: The module is initialized without exception handling. An error would cause Maya to crash on the first pyfrost node evaluation.
 ___
+## Missing/Feature Goals
+* 2D/3D array support (current workaround is to use array of objects with array in property)
+* Use array module or numpy for faster arrays 
+* Option to specify output data type ie: python int -> uint
+* Option for overriding python interpreter path
+* File path as script input
