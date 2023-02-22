@@ -1,6 +1,6 @@
 # Installation
 ### Compound Lib
-Extract `Pyfrost.zip` to the user's compounds directory or other preferred location. Open `Maya.env` and add the following variables:
+Copy `Pyfrost` folder to the user's compounds directory or other preferred location. Open `Maya.env` and add the following variables:
 
     BIFROST_LIB_CONFIG_FILES = <pyfrost location>/PyfrostPackConfig.json
     PYFROST_MODULE_PATH = <pyfrost location>/PyfrostModule
