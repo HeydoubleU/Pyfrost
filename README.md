@@ -49,4 +49,4 @@ ___
 * 2D/3D array support (current workaround is to use array of objects with array in property)
 * Use array module or numpy for faster arrays 
 * Option to specify output data type ie: python int -> uint
-* Option for overriding python interpreter/environement
+* Option for overriding python interpreter/environment
