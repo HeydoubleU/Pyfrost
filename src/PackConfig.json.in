@@ -14,7 +14,8 @@
             ],
             "jsonLibs": [
                 {
-                    "path": "${CONFIG_JSON_FILES}"
+                    "path": "${CONFIG_JSON_FILES}",
+                    "files": ["${CONFIG_PACK_NAME}.json"]
                 }
             ]
         }

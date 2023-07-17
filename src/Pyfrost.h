@@ -13,34 +13,34 @@
 #include <Amino/Cpp/Annotate.h>
 
 namespace Pyfrost {
-namespace Internal {
-    PYFROST_DECL
-        void pyfrost(
-            Bifrost::Object& input AMINO_ANNOTATE("Amino::InOut outName=output"),
-            const Amino::Array<Amino::String>& properties,
-            const long long execution,
-            const Amino::String& script,
-            bool& success
-        )
-        AMINO_ANNOTATE("Amino::Node");
+    namespace Internal {
+        PYFROST_DECL
+            void pyfrost(
+                Bifrost::Object& input AMINO_ANNOTATE("Amino::InOut outName=output"),
+                const Amino::Array<Amino::String>& properties,
+                const long long execution,
+                const Amino::String& script,
+                bool& success
+            )
+            AMINO_ANNOTATE("Amino::Node");
 
-    PYFROST_DECL
-        void pyfrost(
-            Bifrost::Object& input AMINO_ANNOTATE("Amino::InOut outName=output"),
-            const bool properties,
-            const long long execution,
-            const Amino::String& script,
-            bool& success
-        )
-        AMINO_ANNOTATE("Amino::Node Amino::DefaultOverload");
+        PYFROST_DECL
+            void pyfrost(
+                Bifrost::Object& input AMINO_ANNOTATE("Amino::InOut outName=output"),
+                const bool properties,
+                const long long execution,
+                const Amino::String& script,
+                bool& success
+            )
+            AMINO_ANNOTATE("Amino::Node Amino::DefaultOverload");
 
-    PYFROST_DECL
-        void finalize_pyfrost(
-            const bool finalize,
-            bool& pass
-        )
-        AMINO_ANNOTATE("Amino::Node");
-} // namespace Internal
+        PYFROST_DECL
+            void finalize_pyfrost(
+                const bool finalize,
+                bool& pass
+            )
+            AMINO_ANNOTATE("Amino::Node");
+    } // namespace Internal
 } // namespace Pyfrost
 
 #endif // PYFROST_H
