@@ -1,325 +1,457 @@
 #include "python.h"
 #include "fromPython.h"
 
+using ulong = unsigned long long;
+using uint = unsigned int;
+using ushort = unsigned short;
+using uchar = unsigned char;
+using PtrBob = Amino::Ptr<Bifrost::Object>;
 
 int initFromPython() {
     import_array();
     return 0;
 }
 
-// Prototypes
-template <typename T>
-T singleFromPy(PyObject& py_value);
-
-void setPropertyFromDictItem(Bifrost::Object& bob, PyObject& py_key, PyObject& py_value);
-
-
-
-void addDictToBob(Bifrost::Object& bob, PyObject& dict) {
-    // Used for converting dict to Object. its used in on overload of 'singleFromPy', where an empty object is created for the input.
-    // This is also used in the operator to add properties the user's input Object, hence why its separate
-
-    PyObject* keys = PyDict_Keys(&dict);
-    PyObject* values = PyDict_Values(&dict);
-    for (int i = 0; i < PyList_GET_SIZE(keys); i++) {
-        setPropertyFromDictItem(bob, *PyList_GetItem(keys, i), *PyList_GetItem(values, i));
-    }
-
-    Py_DECREF(keys); Py_DECREF(values);
-}
-
-
-int npArrayVectorDims(PyArrayObject* np_array) {
-    // Utility for determining which bifrost vector type to convert a numpy array to. This should always return 2, 3, or 4. I can also return 1 indicating a scalar array.
-
-    npy_intp* shape = PyArray_SHAPE(np_array);
-    int num_dims = PyArray_NDIM(np_array);
-
-    // If the array is not an array of arrays (second dim being the vector) return indicating scalar array
-    if (num_dims != 2)
-        return 1;
-
-    // The the second dim is greater than 4, it will not fit in any Bifrost vector type so return indicating scalar array
-    if (shape[1] > 4)
-        return 1;
-
-    // At this point its safe to use whatever this value is.
-    return shape[1];
-
-}
-
-
-// =================================================================================================
-// Basic Conversions
-
-// tuple -> vector
-template <typename VT, typename T>
-VT vector2FromPy(PyObject& py_value) {
-    VT vector;
-    vector.x = singleFromPy<T>(*PyTuple_GetItem(&py_value, 0));
-    vector.y = singleFromPy<T>(*PyTuple_GetItem(&py_value, 1));
-    return vector;
-}
-
-template <typename VT, typename T>
-VT vector3FromPy(PyObject& py_value) {
-    VT vector;
-    vector.x = singleFromPy<T>(*PyTuple_GetItem(&py_value, 0));
-    vector.y = singleFromPy<T>(*PyTuple_GetItem(&py_value, 1));
-    vector.z = singleFromPy<T>(*PyTuple_GetItem(&py_value, 2));
-    return vector;
-}
-
-template <typename VT, typename T>
-VT vector4FromPy(PyObject& py_value) {
-    VT vector;
-    vector.x = singleFromPy<T>(*PyTuple_GetItem(&py_value, 0));
-    vector.y = singleFromPy<T>(*PyTuple_GetItem(&py_value, 1));
-    vector.z = singleFromPy<T>(*PyTuple_GetItem(&py_value, 2));
-    vector.w = singleFromPy<T>(*PyTuple_GetItem(&py_value, 3));
-    return vector;
-}
-
-
-
-template <>  // float -> float
-float singleFromPy(PyObject& py_value) {
-    return PyFloat_AS_DOUBLE(&py_value);
-}
-
-template <>  // tuple -> float2
-Bifrost::Math::float2 singleFromPy(PyObject& py_value) {
-    return vector2FromPy<Bifrost::Math::float2, float>(py_value);
-}
-
-template <>  // tuple -> float3
-Bifrost::Math::float3 singleFromPy(PyObject& py_value) {
-    return vector3FromPy<Bifrost::Math::float3, float>(py_value);
-}
-
-template <>  // tuple -> float4
-Bifrost::Math::float4 singleFromPy(PyObject& py_value) {
-    return vector4FromPy<Bifrost::Math::float4, float>(py_value);
-}
-
-template <>  // int -> long long
-long long singleFromPy(PyObject& py_value) {
-    return PyLong_AsLongLong(&py_value);
-}
-
-template <>  // tuple -> long2
-Bifrost::Math::long2 singleFromPy(PyObject& py_value) {
-    return vector2FromPy<Bifrost::Math::long2, long long>(py_value);
-}
-
-template <>  // tuple -> long3
-Bifrost::Math::long3 singleFromPy(PyObject& py_value) {
-    return vector3FromPy<Bifrost::Math::long3, long long>(py_value);
-}
-
-template <>  // tuple -> long4
-Bifrost::Math::long4 singleFromPy(PyObject& py_value) {
-    return vector4FromPy<Bifrost::Math::long4, long long>(py_value);
-}
-
-template <>  // str -> string
-Amino::String singleFromPy(PyObject& py_value) {
-    return PyUnicode_AsUTF8(&py_value);
-}
-
-template <>  // True/False -> bool
-bool singleFromPy(PyObject& py_value) {
-    return PyObject_IsTrue(&py_value);
-}
-
-template <>  // dict -> Object
-Amino::Ptr<Bifrost::Object> singleFromPy(PyObject& py_value) {
-    auto bob = Bifrost::createObject();
-    addDictToBob(*bob, py_value);
-    return bob.toImmutable();
-
-}
-
-// Np -> array
-template <typename T>
-Amino::Ptr<Amino::Array<T>> arrayFromNp(PyArrayObject* np_array, int vector_dims) {
-
-    T* data = (T*)PyArray_DATA(np_array);
-    int numElements = PyArray_SIZE(np_array)/vector_dims;
-
-    std::initializer_list<T> init(data, data + numElements);
-    Amino::Array<T> amino_array(init);
-    auto array_ptr = Amino::newClassPtr<Amino::Array<T>>(std::move(amino_array));
-    return array_ptr;
-
-}
-
-// list -> array
-template <typename T>
-Amino::Ptr<Amino::Array<T>> arrayFromPy(PyObject& py_value, int list_len) {
-
-    Amino::Array<T> amino_array(list_len);
-    for (int i = 0; i < list_len; i++) {
-        auto py_item = PyList_GetItem(&py_value, i);
-        amino_array[i] = singleFromPy<T>(*py_item);
-    }
-    auto out_array = Amino::newClassPtr<Amino::Array<T>>(std::move(amino_array));
-    return out_array;
-
-}
-
-
-
-// =================================================================================================
-// This set of functions try to convert the given PyObject and add it the Object.
-
-
-// Single Vector
-void setPropertyTuple(Bifrost::Object& bob, const char* key, PyObject& py_value) {
-    
-    int tuple_len = PyTuple_GET_SIZE(&py_value);
-    if (tuple_len < 2 || tuple_len > 4)
-        return;  // tuple length does not match any vector
-
-    PyObject* x_comp = PyTuple_GetItem(&py_value, 0);
-
-    // float vector
-    if (Py_IS_TYPE(x_comp, &PyFloat_Type)) {
-        switch (tuple_len) {
-        case 2: bob.setProperty(key, singleFromPy<Bifrost::Math::float2>(py_value)); return;
-        case 3: bob.setProperty(key, singleFromPy<Bifrost::Math::float3>(py_value)); return;
-        case 4: bob.setProperty(key, singleFromPy<Bifrost::Math::float4>(py_value)); return;
+namespace FromPython
+{
+    void mergeBobWithDict(Amino::MutablePtr<Bifrost::Object>& bob, PyObject* py_obj)
+    {
+        PyObject* keys = PyDict_Keys(py_obj);
+        PyObject* values = PyDict_Values(py_obj);
+        for (int i = 0; i < PyList_GET_SIZE(keys); i++) {
+            auto py_key = PyList_GetItem(keys, i);
+            auto py_item = PyList_GetItem(values, i);
+            bob->setProperty(PyUnicode_AsUTF8(py_key), anyFromPy(py_item));
         }
+        Py_DECREF(keys); Py_DECREF(values);
     }
 
-    // long vector
-    else if (Py_IS_TYPE(x_comp, &PyLong_Type)) {
-        switch (tuple_len) {
-        case 2: bob.setProperty(key, singleFromPy<Bifrost::Math::long2>(py_value)); return;
-        case 3: bob.setProperty(key, singleFromPy<Bifrost::Math::long3>(py_value)); return;
-        case 4: bob.setProperty(key, singleFromPy<Bifrost::Math::long4>(py_value)); return;
-        }
+    template <typename T>
+    T toSimple(PyObject* py_obj);
+
+    template <>
+    PtrBob toSimple(PyObject* py_obj) {
+        auto bob = Bifrost::createObject();
+        mergeBobWithDict(bob, py_obj);
+        return bob.toImmutable();
+	}
+
+    template <>
+    Amino::String toSimple(PyObject* py_obj) {
+        return PyUnicode_AsUTF8(py_obj);
     }
+
+    template <>
+    float toSimple(PyObject* py_obj) {
+        return PyFloat_AS_DOUBLE(py_obj);
+    }
+
+    template <>
+    long long toSimple(PyObject* py_obj) {
+		return PyLong_AsLongLong(py_obj);
+	}
+
+    template <>
+    bool toSimple(PyObject* py_obj) {
+		return PyObject_IsTrue(py_obj);
+	}
+
+    template <typename T>
+    Amino::Ptr<Amino::Array<T>> arrayFromSequence(PyObject* py_obj) {
+        auto list_len = PySequence_Size(py_obj);
+        Amino::Array<T> amino_array(list_len);
+        for (int i = 0; i < list_len; i++) {
+            auto py_item = PySequence_GetItem(py_obj, i);
+            amino_array[i] = toSimple<T>(py_item);
+        }
+        auto out_array = Amino::newClassPtr<Amino::Array<T>>(std::move(amino_array));
+        return out_array;
+    }
+
+    Amino::Any anyFromSequence(PyObject* py_obj) {
+		auto list_len = PySequence_Size(py_obj);
+		if (list_len == 0) // if the list/tuple is empty the type can not be determined, assume a list of objects.
+			return Amino::newClassPtr<Amino::Array<PtrBob>>();
+
+        Amino::Any result;
+        PyObject* first = PySequence_GetItem(py_obj, 0);
+
+        if (Py_IS_TYPE(first, &PyDict_Type)) // -> Object
+            result = arrayFromSequence<PtrBob>(py_obj);
+        else if (Py_IS_TYPE(first, &PyUnicode_Type))
+            result = arrayFromSequence<Amino::String>(py_obj);
+        else if (Py_IS_TYPE(first, &PyFloat_Type))
+            result = arrayFromSequence<float>(py_obj);
+        else if (Py_IS_TYPE(first, &PyLong_Type))
+            result = arrayFromSequence<long long>(py_obj);
+        else if (Py_IS_TYPE(first, &PyBool_Type))
+            result = arrayFromSequence<bool>(py_obj);
+        else
+            result = Amino::newClassPtr<Amino::Array<PtrBob>>();
+
+        Py_CLEAR(first);
+        return result;
+	}
 }
 
 
-// Array (Np)
-void setPropertyNumpy(Bifrost::Object& bob, const char* key, PyObject& py_value) {
-
-    PyArrayObject* np_array = reinterpret_cast<PyArrayObject*>(&py_value);
-    PyArray_Descr* descr = PyArray_DESCR(np_array);
-
-    switch (descr->type_num) {
-    case NPY_FLOAT:
-        switch (npArrayVectorDims(np_array)) {
-        case 1: bob.setProperty(key, arrayFromNp<float>(np_array, 1)); return;
-        case 2: bob.setProperty(key, arrayFromNp<Bifrost::Math::float2>(np_array, 2)); return;
-        case 3: bob.setProperty(key, arrayFromNp<Bifrost::Math::float3>(np_array, 3)); return;
-        case 4: bob.setProperty(key, arrayFromNp<Bifrost::Math::float4>(np_array, 4)); return;
-        default: return;
-        }
-    case NPY_LONGLONG:
-        switch (npArrayVectorDims(np_array)) {
-        case 1: bob.setProperty(key, arrayFromNp<long long>(np_array, 1)); return;
-        case 2: bob.setProperty(key, arrayFromNp<Bifrost::Math::long2>(np_array, 2)); return;
-        case 3: bob.setProperty(key, arrayFromNp<Bifrost::Math::long3>(np_array, 3)); return;
-        case 4: bob.setProperty(key, arrayFromNp<Bifrost::Math::long4>(np_array, 4)); return;
-        default: return;
+namespace FromNumpy
+{
+    Amino::Any toScalar(PyObject* py_obj)
+    {
+        auto desc = PyArray_DescrFromScalar(py_obj)->type_num;
+        void* data;
+        PyArray_ScalarAsCtype(py_obj, data);
+        switch (PyArray_DescrFromScalar(py_obj)->type_num) {
+        case NPY_FLOAT: return *static_cast<float*>(data);
+        case NPY_DOUBLE: return *static_cast<double*>(data);
+        case NPY_LONGLONG: return *static_cast<long long*>(data);
+        case NPY_ULONGLONG: return *static_cast<ulong*>(data);
+        case NPY_INT: case NPY_LONG: return *static_cast<int*>(data);
+        case NPY_UINT: case NPY_ULONG: return *static_cast<uint*>(data);
+        case NPY_SHORT: return *static_cast<short*>(data);
+        case NPY_USHORT: return *static_cast<ushort*>(data);
+        case NPY_BYTE: return *static_cast<signed char*>(data);
+        case NPY_UBYTE: return *static_cast<uchar*>(data);
+        case NPY_BOOL: return *static_cast<bool*>(data);
+        default: return FromPython::toSimple<Amino::String>(PyObject_Str(py_obj));
         }
 
-    case NPY_BOOL:
-        bob.setProperty(key, arrayFromNp<bool>(np_array, 1));
-        return;
+        // otherwise return py_obj as string
 
-    case NPY_UINT:
-		bob.setProperty(key, arrayFromNp<unsigned int>(np_array, 1));
-        return;
-    }
-}
-
-
-// Array (List)
-void setPropertyList(Bifrost::Object& bob, const char* key, PyObject& py_value) {
-
-    // length check
-    const int list_len = PyList_GET_SIZE(&py_value);
-    if (list_len == 0)
-        return;
-
-    PyObject* first = PyList_GetItem(&py_value, 0);
-
-    // Type checks
-    if (Py_IS_TYPE(first, &PyDict_Type)) {
-        bob.setProperty(key, arrayFromPy<Amino::Ptr<Bifrost::Object>>(py_value, list_len));
-    }
-    else if (Py_IS_TYPE(first, &PyUnicode_Type)) {
-        bob.setProperty(key, arrayFromPy<Amino::String>(py_value, list_len));
     }
 
-    // Numeric arrays are now handled, but user could still create a list within their script so conditions for this remain.
-    else if (Py_IS_TYPE(first, &PyFloat_Type)) {
-        bob.setProperty(key, arrayFromPy<float>(py_value, list_len));
+    inline bool validMembers(int members) {
+        // Verify the number of memebers represents a valid vector or matrix type
+        return members <= 4 && members >= 2;
     }
-    else if (Py_IS_TYPE(first, &PyLong_Type)) {
-        bob.setProperty(key, arrayFromPy<long long>(py_value, list_len));
-    }
-    else if (Py_IS_TYPE(first, &PyTuple_Type)) {
-        int tuple_len = PyTuple_GET_SIZE(first);
-        if (tuple_len) {
-            PyObject* x_comp = PyTuple_GetItem(first, 0);
-            if (Py_IS_TYPE(x_comp, &PyFloat_Type)) {
-                switch (tuple_len) {
-                case 2: bob.setProperty(key, arrayFromPy<Bifrost::Math::float2>(py_value, list_len)); return;
-                case 3: bob.setProperty(key, arrayFromPy<Bifrost::Math::float3>(py_value, list_len)); return;
-                case 4: bob.setProperty(key, arrayFromPy<Bifrost::Math::float4>(py_value, list_len)); return;
-                default: return;
-                }
+
+    int solveArrayShapeType(PyArrayObject* np_array, int& size) {
+        npy_intp* shape = PyArray_SHAPE(np_array);
+        int ndim = PyArray_NDIM(np_array);
+
+        switch (ndim) {
+        case 0 || 1: // scalar
+            size = PyArray_SIZE(np_array);
+            return 0;
+        case 2: // vector
+            if (validMembers(shape[1])) {
+                size = np_array->dimensions[0];
+                return shape[1];
             }
-            else if (Py_IS_TYPE(x_comp, &PyLong_Type)) {
-                switch (tuple_len) {
-                case 2: bob.setProperty(key, arrayFromPy<Bifrost::Math::long2>(py_value, list_len)); return;
-                case 3: bob.setProperty(key, arrayFromPy<Bifrost::Math::long3>(py_value, list_len)); return;
-                case 4: bob.setProperty(key, arrayFromPy<Bifrost::Math::long4>(py_value, list_len)); return;
-                default: return;
-                }
+            break;
+        case 3: // matrix
+            if (validMembers(shape[1]) && validMembers(shape[2])) {
+                size = np_array->dimensions[0];
+                return shape[2] * 10 + shape[1];
+            }
+            break;
+        }
+
+        size = PyArray_SIZE(np_array);
+        return 0;
+    }
+
+    int solveComplexShapeType(PyArrayObject* np_array, int& size) {
+        npy_intp* shape = PyArray_SHAPE(np_array);
+        int ndim = PyArray_NDIM(np_array);
+
+        switch (ndim) {
+        case 0: // array with no dimension
+            size = PyArray_SIZE(np_array);
+            return 0;
+        case 1: // vector
+            if (validMembers(shape[0]))
+                return shape[0];
+            break;
+        case 2: // matrix
+            if (validMembers(shape[0]) && validMembers(shape[1]))
+                return shape[1] * 10 + shape[0];
+            break;
+        }
+
+        size = PyArray_SIZE(np_array);
+        return 0;
+    }
+
+    template <typename T>
+    Amino::Any castArrayToType(PyArrayObject* np_array, int size)
+    {
+        T* data = (T*)PyArray_DATA(np_array);
+
+        if (size < 0)
+            return *data;
+
+        std::initializer_list<T> init(data, data + size);
+        Amino::Array<T> amino_array(init);
+        auto array_ptr = Amino::newClassPtr<Amino::Array<T>>(std::move(amino_array));
+        return array_ptr;
+    }
+
+    Amino::Any castToObjectArray(PyArrayObject* np_array, int size)
+    {
+        Amino::Array<PtrBob> amino_array(size);
+
+        for (int i = 0; i < size; i++) {
+            auto py_item = PyArray_GETITEM(np_array, PyArray_GETPTR1(np_array, i));
+            amino_array[i] = FromPython::toSimple<PtrBob>(py_item);
+            Py_CLEAR(py_item);
+        }
+
+        auto array_ptr = Amino::newClassPtr<Amino::Array<PtrBob>>(std::move(amino_array));
+        return array_ptr;
+    }
+
+    Amino::Any castToStringArray(PyArrayObject* np_array, int size)
+    {
+        Amino::Array<Amino::String> amino_array(size);
+
+        for (int i = 0; i < size; i++) {
+            auto py_item = PyArray_GETITEM(np_array, PyArray_GETPTR1(np_array, i));
+            amino_array[i] = FromPython::toSimple<Amino::String>(py_item);
+            Py_CLEAR(py_item);
+        }
+
+        auto array_ptr = Amino::newClassPtr<Amino::Array<Amino::String>>(std::move(amino_array));
+        return array_ptr;
+    }
+
+    Amino::Any arrayToAny(PyObject* py_obj)
+    {
+        PyArrayObject* np_array = reinterpret_cast<PyArrayObject*>(py_obj);
+        int size = -1; int shape_type;
+        bool has_md = (bool)np_array->descr->metadata;
+
+        if (has_md)
+            shape_type = solveComplexShapeType(np_array, size);
+        else
+			shape_type = solveArrayShapeType(np_array, size);
+
+        switch (np_array->descr->type_num) {
+        case NPY_OBJECT:
+            size = PyArray_SIZE(np_array);
+            if (size == 0) {  // If empty we refer to metadata to determine type
+                if (has_md)
+                    return castToStringArray(np_array, size);
+				else
+                    return castToObjectArray(np_array, size);
+            }
+            else {  // Else we check the first element's type
+                auto first = PyArray_GETITEM(np_array, PyArray_GETPTR1(np_array, 0));
+                bool is_dict = PyDict_Check(first);
+                Py_CLEAR(first);
+                if (is_dict)
+                    return castToObjectArray(np_array, size);
+                else
+                    return castToStringArray(np_array, size);
+            }
+            
+        case NPY_UNICODE:
+			return castToStringArray(np_array, PyArray_SIZE(np_array));
+        case NPY_STRING:
+            return castToStringArray(np_array, PyArray_SIZE(np_array));
+        case NPY_FLOAT:
+            switch (shape_type) {
+            case 0: return castArrayToType<float>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::float2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::float3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::float4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::float2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::float2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::float2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::float3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::float3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::float3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::float4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::float4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::float4x4>(np_array, size);
+            }
+        case NPY_DOUBLE:
+            switch (shape_type) {
+            case 0: return castArrayToType<double>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::double2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::double3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::double4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::double2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::double2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::double2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::double3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::double3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::double3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::double4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::double4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::double4x4>(np_array, size);
+            }
+        case NPY_LONGLONG:
+            switch (shape_type) {
+            case 0: return castArrayToType<long long>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::long2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::long3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::long4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::long2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::long2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::long2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::long3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::long3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::long3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::long4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::long4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::long4x4>(np_array, size);
+            }
+        case NPY_ULONGLONG:
+            switch (shape_type) {
+            case 0: return castArrayToType<ulong>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::ulong2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::ulong3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::ulong4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::ulong2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::ulong2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::ulong2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::ulong3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::ulong3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::ulong3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::ulong4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::ulong4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::ulong4x4>(np_array, size);
+            }
+        case NPY_INT:
+        case NPY_LONG:
+            switch (shape_type) {
+            case 0: return castArrayToType<int>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::int2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::int3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::int4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::int2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::int2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::int2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::int3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::int3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::int3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::int4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::int4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::int4x4>(np_array, size);
+            }
+        case NPY_UINT:
+        case NPY_ULONG:
+            switch (shape_type) {
+            case 0: return castArrayToType<uint>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::uint2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::uint3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::uint4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::uint2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::uint2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::uint2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::uint3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::uint3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::uint3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::uint4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::uint4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::uint4x4>(np_array, size);
+            }
+        case NPY_SHORT:
+            switch (shape_type) {
+            case 0: return castArrayToType<short>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::short2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::short3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::short4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::short2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::short2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::short2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::short3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::short3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::short3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::short4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::short4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::short4x4>(np_array, size);
+            }
+        case NPY_USHORT:
+            switch (shape_type) {
+            case 0: return castArrayToType<ushort>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::ushort2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::ushort3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::ushort4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::ushort2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::ushort2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::ushort2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::ushort3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::ushort3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::ushort3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::ushort4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::ushort4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::ushort4x4>(np_array, size);
+            }
+        case NPY_BYTE:
+            switch (shape_type) {
+            case 0: return castArrayToType<signed char>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::char2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::char3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::char4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::char2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::char2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::char2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::char3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::char3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::char3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::char4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::char4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::char4x4>(np_array, size);
+            }
+        case NPY_UBYTE:
+            switch (shape_type) {
+            case 0: return castArrayToType<uchar>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::uchar2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::uchar3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::uchar4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::uchar2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::uchar2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::uchar2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::uchar3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::uchar3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::uchar3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::uchar4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::uchar4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::uchar4x4>(np_array, size);
+            }
+        case NPY_BOOL:
+            switch (shape_type) {
+            case 0: return castArrayToType<bool>(np_array, size);
+            case 2: return castArrayToType<Bifrost::Math::bool2>(np_array, size);
+            case 3: return castArrayToType<Bifrost::Math::bool3>(np_array, size);
+            case 4: return castArrayToType<Bifrost::Math::bool4>(np_array, size);
+            case 22: return castArrayToType<Bifrost::Math::bool2x2>(np_array, size);
+            case 23: return castArrayToType<Bifrost::Math::bool2x3>(np_array, size);
+            case 24: return castArrayToType<Bifrost::Math::bool2x4>(np_array, size);
+            case 32: return castArrayToType<Bifrost::Math::bool3x2>(np_array, size);
+            case 33: return castArrayToType<Bifrost::Math::bool3x3>(np_array, size);
+            case 34: return castArrayToType<Bifrost::Math::bool3x4>(np_array, size);
+            case 42: return castArrayToType<Bifrost::Math::bool4x2>(np_array, size);
+            case 43: return castArrayToType<Bifrost::Math::bool4x3>(np_array, size);
+            case 44: return castArrayToType<Bifrost::Math::bool4x4>(np_array, size);
             }
         }
 
-    }
-    else if (Py_IS_TYPE(first, &PyBool_Type)) {
-        bob.setProperty(key, arrayFromPy<bool>(py_value, list_len));
+        return FromPython::toSimple<Amino::String>(PyObject_Str(py_obj));
     }
 }
 
 
-// =================================================================================================
-// Calls the appropriate set property function based on the PyObject type
-void setPropertyFromDictItem(Bifrost::Object& bob, PyObject& py_key, PyObject& py_value) {
-
-    auto key = PyUnicode_AsUTF8(&py_key);
-
-    if (Py_IS_TYPE(&py_value, &PyFloat_Type)) // -> float
-        bob.setProperty(key, singleFromPy<float>(py_value));
-
-    else if (Py_IS_TYPE(&py_value, &PyLong_Type)) // -> long long
-        bob.setProperty(key, singleFromPy<long long>(py_value));
-
-    else if (Py_IS_TYPE(&py_value, &PyTuple_Type)) // -> vector
-        setPropertyTuple(bob, key, py_value);
-
-    else if (PyArray_Check(&py_value)) // -> array
-        setPropertyNumpy(bob, key, py_value);
-
-    else if (Py_IS_TYPE(&py_value, &PyList_Type)) // -> array
-        setPropertyList(bob, key, py_value);
-
-    else if (Py_IS_TYPE(&py_value, &PyDict_Type)) // -> Object
-        bob.setProperty(key, singleFromPy<Amino::Ptr<Bifrost::Object>>(py_value));
-
-    else if (Py_IS_TYPE(&py_value, &PyBool_Type)) // -> bool
-        bob.setProperty(key, singleFromPy<bool>(py_value));
-
-    else if (Py_IS_TYPE(&py_value, &PyUnicode_Type)) // -> string
-        bob.setProperty(key, singleFromPy<Amino::String>(py_value));
-
+Amino::Any anyFromPy(PyObject* py_obj)
+{
+    if (Py_IS_TYPE(py_obj, &PyDict_Type))
+        return FromPython::toSimple<PtrBob>(py_obj);
+    else if (Py_IS_TYPE(py_obj, &PyUnicode_Type))
+		return FromPython::toSimple<Amino::String>(py_obj);
+    else if (PyArray_CheckScalar(py_obj))
+        return FromNumpy::toScalar(py_obj);
+    else if (PyArray_Check(py_obj))
+        return FromNumpy::arrayToAny(py_obj);
+    else if (Py_IS_TYPE(py_obj, &PyFloat_Type))
+		return FromPython::toSimple<float>(py_obj);
+	else if (Py_IS_TYPE(py_obj, &PyLong_Type))
+		return FromPython::toSimple<long long>(py_obj);
+    else if (Py_IS_TYPE(py_obj, &PyBool_Type))
+        return FromPython::toSimple<bool>(py_obj);
+	else if (Py_IS_TYPE(py_obj, &PyList_Type) || Py_IS_TYPE(py_obj, &PyTuple_Type))
+		return FromPython::anyFromSequence(py_obj);
+    return FromPython::toSimple<Amino::String>(PyObject_Str(py_obj));
 }

@@ -28,68 +28,68 @@ int initPython() {
 }
 
 // Pyfrost Op
-
-//template <typename T> //  Both overload bodies are identical but trying to template the Ops directly caused JIT compile error
-template <typename T>
-bool pyfrostBody(Bifrost::Object& input, const T properties, const long long execution, const Amino::String& script) {
+void Pyfrost::Internal::pyfrost(Amino::Ptr<Bifrost::Object>& input, const Amino::String& script, const bool global, const bool consume_input, bool& success) {
     if (!PY_INITED) {
         initPython();
     }
-    
-    PyObject* py_result;
 
-    // pack args and call
-    if (execution == 0) {  // Exec in global space (no input object)
-        PyObject* args = PyTuple_Pack(1, PyUnicode_FromString(script.c_str()));
+    // Prepare inputs
+    PyObject* py_in, *py_result;
+    if (input->hasProperty("python_I")) {
+        py_in = anyToPy(input->getProperty("python_I"));
+        if (py_in == nullptr)
+            py_in = Py_None;
+    }  
+    else
+        py_in = ToPython::fromSimple(input);
+
+    auto py_script = PyUnicode_FromString(script.c_str());
+    auto args = PyTuple_Pack(2, py_script, py_in);
+
+    if (global)
         py_result = PyObject_Call(PY_GLOBAL_EXEC_FUNC, args, NULL);
-    }
-    else {  // Exec in local space
-        PyObject* py_in;
-        if (input.hasProperty("_"))
-            py_in = anyToPy(input.getProperty("_"));  // user input is not bob
-        else
-            py_in = bobToDict(input, properties);  // user input is bob with properties
-
-        PyObject* args = PyTuple_Pack(2, PyUnicode_FromString(script.c_str()), py_in);
+    else
         py_result = PyObject_Call(PY_EXEC_FUNC, args, NULL);
-        Py_CLEAR(args);
-        Py_CLEAR(py_in);
 
-    }
+    // Clean up and process result
+    Py_CLEAR(py_script); Py_CLEAR(args); Py_CLEAR(py_in);
+    Amino::MutablePtr<Bifrost::Object> output;
+    if (consume_input)
+        output = Bifrost::createObject();
+    else
+        output = input.toMutable();
 
-    if (execution == 2) input.eraseAllProperties();  // if consuming input
-
-    //add py dict to input object, type will not be dict in situations such as a python threw exception
-    if (Py_IS_TYPE(py_result, &PyDict_Type)) {
-        addDictToBob(input, *py_result);
-        Py_CLEAR(py_result);
-        return true;
-    }
-
-    else if (py_result == Py_None) {
-        return true;
-    }
-
+    // Check for python exception
+    PyObject* type, * value, * traceback;
+    PyErr_Fetch(&type, &value, &traceback);
+    if (value) {
+        PyErr_NormalizeException(&type, &value, &traceback);
+        auto py_str = PyObject_Str(value);
+        output->setProperty("python_exception", PyUnicode_AsUTF8(py_str));
+        Py_CLEAR(py_str); Py_CLEAR(type); Py_CLEAR(value); Py_CLEAR(traceback);
+        PyErr_Clear();
+        success = false;
+	}
     else {
-        if (Py_IS_TYPE(py_result, &PyUnicode_Type)) {
-            input.setProperty("python_exception", PyUnicode_AsUTF8(py_result));
-        }
-        return false;
-    }
+        if (PyDict_Check(py_result)) {
+			FromPython::mergeBobWithDict(output, py_result);
+		}
+        else
+            output->setProperty("python_O", anyFromPy(py_result));
+		success = true;
+	}
+
+    Py_CLEAR(py_result); 
+    input = output.toImmutable();
 }
 
-void Pyfrost::Internal::pyfrost(Bifrost::Object& input, const bool properties, const long long execution, const Amino::String& script, bool& success) {
-    success = pyfrostBody(input, properties, execution, script);
-}
+// CLEAN UP OLD CODE =================================================================================================
 
-void Pyfrost::Internal::pyfrost(Bifrost::Object& input, const Amino::Array<Amino::String>& properties, const long long execution, const Amino::String& script, bool& success) {
-    success = pyfrostBody(input, properties, execution, script);
-}
-
-void Pyfrost::Internal::finalize_pyfrost(const bool finalize, bool& pass) {
-    if (PY_INITED) {
-        Py_FinalizeEx();  // Causes crash if numpy has been imported
-        PY_INITED = 0;
-    }
-    pass = finalize;
-}
+// Removed because numpy bug makes this unusable
+//void Pyfrost::Internal::finalize_pyfrost(const bool finalize, bool& pass) {
+//    if (PY_INITED) {
+//        Py_FinalizeEx();  // Causes crash if numpy has been imported
+//        PY_INITED = 0;
+//    }
+//    pass = finalize;
+//}

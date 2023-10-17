@@ -8,7 +8,11 @@
 #include <Amino/Cpp/Annotate.h>
 #include <numpy/arrayobject.h>
 
+Amino::Any anyFromPy(PyObject* py_obj);
 
-void addDictToBob(Bifrost::Object& bob, PyObject& dict);
+namespace FromPython {
+    void mergeBobWithDict(Amino::MutablePtr<Bifrost::Object>& bob, PyObject* py_obj);
+    Amino::Ptr<Bifrost::Object> toSimple(PyObject* py_obj);
+}
 
 int initFromPython();

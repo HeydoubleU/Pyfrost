@@ -9,9 +9,8 @@
 #include <numpy/arrayobject.h>
 
 
-PyObject* anyToPy(Amino::Any data);
-PyObject* bobToDict(Bifrost::Object& bob, Amino::Array<Amino::String> keys);
-PyObject* bobToDict(Bifrost::Object& bob, bool properties);
-
-
 int initToPython();
+namespace ToPython {
+	PyObject* fromSimple(Amino::Ptr<Bifrost::Object> bob);
+}
+PyObject* anyToPy(Amino::Any data);

@@ -1,4 +1,4 @@
-set(PY_VER 3.10)
+set(PY_VER 3.11)
 string(REPLACE "." "" PY_VER_STR "${PY_VER}")
 
 add_library( PyfrostOps SHARED)
@@ -11,8 +11,8 @@ target_link_libraries( PyfrostOps PUBLIC Bifrost::Object )
 bifrost_set_install_rpath(PyfrostOps)
 install( TARGETS PyfrostOps DESTINATION lib${PY_VER_STR} )  # folder where lib/dll files go
 
-include_directories(${PYTHON_INCLUDE_DIRS})
 find_package(PythonLibs ${PY_VER} EXACT REQUIRED)
+include_directories(${PYTHON_INCLUDE_DIRS})
 target_link_libraries(PyfrostOps PUBLIC ${PYTHON_LIBRARIES})
 
 include_directories("C:/Users/MAIN/AppData/Local/Programs/Python/Python${PY_VER_STR}/Lib/site-packages/numpy/core/include")

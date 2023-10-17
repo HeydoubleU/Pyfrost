@@ -20,8 +20,8 @@ removeFolder("C:/Users/MAIN/source/repos/Pyfrost/out", "build")
 os.system("C:/Users/MAIN/source/repos/Pyfrost/build.bat")
 
 # copy files
-for folder in os.listdir("C:/Users/MAIN/bifrost_packs/Pyfrost-2.0.0"):
-    path = os.path.join("C:/Users/MAIN/bifrost_packs/Pyfrost-2.0.0", folder)
+for folder in os.listdir("C:/Users/MAIN/bifrost_packs/Pyfrost-3.0.0"):
+    path = os.path.join("C:/Users/MAIN/bifrost_packs/Pyfrost-3.0.0", folder)
     if folder.startswith("lib") and os.path.isdir(path):
         dst = os.path.join("A:/TeamEnvironment/Compounds/Pyfrost", folder)
         if os.path.isdir(dst):
