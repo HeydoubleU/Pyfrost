@@ -9,7 +9,7 @@ Built with Python 3.11, a version of which is required to be installed and in th
 2. Open `Maya.env` and add the following variables:
 
         BIFROST_LIB_CONFIG_FILES = <pyfrost location>/PyfrostPackConfig.json
-        PYFROST_MODULE_PATH = <pyfrost location>/PyfrostModule
+        PYFROST_MODULE_PATH = <pyfrost location>/modules
     (if `BIFROST_LIB_CONFIG_FILES` is defined, append to the existing value using `;`)
 
 
