@@ -13,15 +13,15 @@ Built with Python 3.11, a version of which is required to be installed and in th
     (if `BIFROST_LIB_CONFIG_FILES` is defined, append to the existing value using `;`)
 
 
-4. Install a version of Python 3.11, with "Add Python to PATH" checked.
-5. Install Numpy: `pip install numpy`.
-6. (Optional) Enable `MayaSM` by adding the following to `userSetup.py`:
+3. Install a version of Python 3.11, with "Add Python to PATH" checked.
+4. Install Numpy: `pip install numpy`.
+5. (Optional) Enable `MayaSM` by adding the following to `userSetup.py`:
 
         import os, sys
         sys.path.append(os.environ["PYFROST_MODULE_PATH"])
         import MayaSM
    
-8. (Optional) Pyfrost deals mostly with numpy objects, so it can be useful to have numpy installed to Maya's environment as well:
+6. (Optional) Pyfrost deals mostly with numpy objects, so it can be useful to have numpy installed to Maya's environment as well:
 
         "<maya install dir>/bin/mayapy.exe" -m pip install numpy
 
@@ -142,7 +142,7 @@ MayaSM.dgExecutor(graph="")
 ___
 
 ## Bob Explorer
-This is simple UI for viewing Bifrost data. If installations steps 6. and 7. are met, the UI can be opened with:
+This is simple UI for viewing Bifrost data. If installation step 6. is met, the UI can be opened with:
 
     import BobExplorer
     BobExplorer.openControl()
