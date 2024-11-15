@@ -1,4 +1,4 @@
-DEPRECATED for now. This requires will require some rewriting to work with sdk changes in recent versions of Bifrost.
+DEPRECATED for now. This will require some rewriting to work with sdk changes in recent versions of Bifrost.
 
 # Pyfrost
 Python embedded in a Bifrost Operator. Created and tested with `Maya 2024.1`, `Bifrost 2.7.1.0`, `Python 3.11.4`.
